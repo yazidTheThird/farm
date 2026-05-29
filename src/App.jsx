@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -171,9 +171,13 @@ export default function AgriWeather() {
   const today     = new Date();
   const oneYearAgo = addDays(today, -365);
 
-  const [lat, setLat]           = useState("33.06");
-  const [lon, setLon]           = useState("-7.59");
-  const [locName, setLocName]   = useState("Beni Mellal, Morocco");
+  // Persisted state: load from localStorage
+  const [lat, setLat]           = useState(() => localStorage.getItem('agro_lat') || "32.3193");
+  const [lon, setLon]           = useState(() => localStorage.getItem('agro_lon') || "-3.6149");
+  const [locName, setLocName]   = useState(() => localStorage.getItem('agro_locName') || "");
+  const [favorites, setFavorites] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('agro_favorites')) || []; } catch { return []; }
+  });
   const [startDate, setStart]   = useState(formatDate(addDays(today, -180)));
   const [endDate, setEnd]       = useState(formatDate(addDays(today, -1)));
   const [selVars, setSelVars]   = useState(new Set([
@@ -185,6 +189,13 @@ export default function AgriWeather() {
   const [chartData, setChartData] = useState([]);
   const [rawDaily, setRaw]      = useState(null);
   const [analyzed, setAnalyzed] = useState(false);
+  const [showFavs, setShowFavs] = useState(false);
+
+  // Persist location on change
+  useEffect(() => { localStorage.setItem('agro_lat', lat); }, [lat]);
+  useEffect(() => { localStorage.setItem('agro_lon', lon); }, [lon]);
+  useEffect(() => { localStorage.setItem('agro_locName', locName); }, [locName]);
+  useEffect(() => { localStorage.setItem('agro_favorites', JSON.stringify(favorites)); }, [favorites]);
 
   /* toggle variable */
   const toggleVar = id => {
@@ -394,6 +405,18 @@ export default function AgriWeather() {
               <input value={lon} onChange={e=>setLon(e.target.value)} placeholder="-7.59"
                 style={inputStyle} />
             </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+              <button onClick={() => { document.getElementById('favInput')?.focus(); setShowFavs(!showFavs); }}
+                style={{
+                  background: showFavs ? `${T.straw}33` : 'transparent',
+                  border: `1px solid ${showFavs ? T.straw : T.mist}44`,
+                  borderRadius: 6, padding: "8px 12px", color: showFavs ? T.straw : T.mist,
+                  fontFamily: "'DM Mono', monospace", fontSize: 11, cursor: "pointer",
+                  alignSelf: "stretch",
+                }}>
+                {showFavs ? '✕ CLOSE' : '☆ FAVORITES'}
+              </button>
+            </div>
             <div style={{ flex: "1 1 140px" }}>
               <label style={{ fontSize: 11, color: T.mist, display: "block", marginBottom: 5 }}>FROM</label>
               <input type="date" value={startDate} onChange={e=>setStart(e.target.value)}
@@ -420,6 +443,62 @@ export default function AgriWeather() {
               }} style={quickBtnStyle}>{label}</button>
             ))}
           </div>
+
+          {/* FAVORITES PANEL */}
+          {showFavs && (
+            <div style={{ marginBottom: 20, background: `${T.soil}CC`, border: `1px solid ${T.straw}44`, borderRadius: 10, padding: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: T.straw, fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>⭐ SAVED LOCATIONS</span>
+                <span style={{ fontSize: 10, color: T.mist }}>{favorites.length}/10</span>
+              </div>
+              {favorites.length === 0 && (
+                <div style={{ fontSize: 11, color: T.mist, marginBottom: 8 }}>No saved locations yet. Click ☆ next to a location to save it.</div>
+              )}
+              {favorites.map((fav, i) => (
+                <div key={i} style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+                  borderBottom: i < favorites.length-1 ? `1px solid ${T.forest}` : 'none',
+                }}>
+                  <span style={{ fontSize: 10, color: T.straw, fontWeight: 700, minWidth: 16 }}>{i+1}.</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: T.cream, cursor: 'pointer' }}
+                      onClick={() => { setLat(fav.lat); setLon(fav.lon); setLocName(fav.name || ''); }}>{fav.name || 'Unnamed'}</div>
+                    <div style={{ fontSize: 9, color: T.mist }}>{fav.lat}°N, {fav.lon}°E</div>
+                  </div>
+                  <button onClick={() => {
+                    setFavorites(favorites.filter((_, fi) => fi !== i));
+                  }} style={{ background: 'transparent', border: 'none', color: '#E88A6A', cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
+                </div>
+              ))}
+              {favorites.length < 10 && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                  <input id="favInput" placeholder="Save current location as…" style={{
+                    ...inputStyle, fontSize: 11, padding: '6px 10px', flex: 1,
+                  }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && e.target.value.trim()) {
+                        const existing = favorites.find(f => f.lat === lat && f.lon === lon);
+                        if (!existing && favorites.length < 10) {
+                          setFavorites([...favorites, { name: e.target.value.trim(), lat, lon }]);
+                        }
+                        e.target.value = '';
+                      }
+                    }} />
+                  <button onClick={() => {
+                    const inp = document.getElementById('favInput');
+                    if (inp && inp.value.trim() && !favorites.find(f => f.lat === lat && f.lon === lon) && favorites.length < 10) {
+                      setFavorites([...favorites, { name: inp.value.trim(), lat, lon }]);
+                      inp.value = '';
+                    }
+                  }} style={{
+                    background: `${T.straw}22`, border: `1px solid ${T.straw}44`,
+                    borderRadius: 6, padding: '6px 12px', color: T.straw, fontSize: 11,
+                    fontFamily: "'DM Mono', monospace", cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}>SAVE</button>
+                </div>
+              )}
+            </div>
+          )}
 
           <SectionTitle icon="📊">Data Variables</SectionTitle>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -621,73 +700,83 @@ const CROPS = [
   // ── Tree Fruits ──────────────────────────────────────────────
   {
     id:"olive", emoji:"🫒", name:"Olive", category:"Tree Fruit",
-    gddOpt:[1800,3500], gddAbs:[1200,5000],
-    frostTol:"moderate", maxAnnualFrost:60, frostKillBelow:-12,
-    heatOpt:90, heatAbs:150,
+    gddOpt:[2000,3500], gddAbs:[1500,5000],
+    frostTol:"moderate", maxAnnualFrost:60, frostKillBelow:-6,
+    heatOpt:30, heatAbs:65,
     waterNeed:"low", minAridityRainfed:0.25, minAridityIrr:0.0,
-    chillingNeeded:200, waterPerHa:4500,
-    notes:"Extremely drought-hardy once established. Frost damages flowers at –2°C. Thrives in Mediterranean climates.",
-    keyFacts:["Perennial — 3–5 yr to first harvest","Excellent for arid/semi-arid with irrigation","Oil yield drops sharply above 38°C during ripening"],
+    chillingNeeded:300, waterPerHa:4500,
+    notes:"Extremely drought-hardy once established. Requires 2 months below 10°C for flower bud differentiation. High temps + dry winds cause poor fruit set. Thrives in Mediterranean climates with mild, rainy winters and hot, dry summers.",
+    keyFacts:["Perennial — 3–5 yr to first harvest","Dormancy period needs ~2 months below 10°C","Oil yield drops sharply above 38°C during ripening"],
   },
   {
     id:"citrus", emoji:"🍊", name:"Citrus", category:"Tree Fruit",
     gddOpt:[2000,4000], gddAbs:[1500,5500],
-    frostTol:"none", maxAnnualFrost:3, frostKillBelow:-4,
-    heatOpt:60, heatAbs:100,
+    frostTol:"none", maxAnnualFrost:3, frostKillBelow:-3,
+    heatOpt:30, heatAbs:65,
     waterNeed:"moderate", minAridityRainfed:0.5, minAridityIrr:0.0,
-    chillingNeeded:0, waterPerHa:7000,
-    notes:"Frost is the main limiting factor. Needs warm winters and hot summers. Drip irrigation essential in dry climates.",
-    keyFacts:["Sensitive to frost below –2°C (flowers/fruit)","Requires 7000–9000 m³/ha/yr water","Best varieties: Valencia, Navel, Clementine"],
+    chillingNeeded:0, waterPerHa:8000,
+    notes:"Frost is the main limiting factor. Needs winter rest period (low temps or water deficit). Optimum mean daily temp 18–25°C. Drip irrigation essential in dry climates.",
+    keyFacts:["Sensitive to frost below –3°C (flowers/fruit)","Requires 7000–9000 m³/ha/yr water","Best varieties: Valencia, Navel, Clementine"],
   },
   {
     id:"date_palm", emoji:"🌴", name:"Date Palm", category:"Tree Fruit",
-    gddOpt:[3000,6000], gddAbs:[2000,9000],
-    frostTol:"light", maxAnnualFrost:10, frostKillBelow:-8,
-    heatOpt:150, heatAbs:200,
-    waterNeed:"low", minAridityRainfed:0.1, minAridityIrr:0.0,
-    chillingNeeded:0, waterPerHa:18000,
-    notes:"Loves extreme heat and dry air for ripening. Tolerates mild frost. Needs deep watering but handles aridity well.",
-    keyFacts:["High humidity during ripening causes fruit rot","Needs 100+ days above 38°C for premium Medjool","Deep-rooted; tolerates saline soils better than most"],
+    gddOpt:[3000,6000], gddAbs:[2500,9000],
+    frostTol:"light", maxAnnualFrost:10, frostKillBelow:-6,
+    heatOpt:100, heatAbs:160,
+    waterNeed:"high", minAridityRainfed:0.1, minAridityIrr:0.0,
+    chillingNeeded:0, waterPerHa:15000,
+    notes:"Loves extreme heat and dry air for ripening. Tolerates mild frost to –6°C during dormancy. High humidity during ripening causes fruit rot. Deep-rooted but heavy water consumer — 12,000–18,000 m³/ha/yr.",
+    keyFacts:["Humidity during ripening causes fruit rot and disease","Needs 100+ days above 38°C for premium Medjool","Tolerates saline soils better than most fruit trees","Requires 12,000–18,000 m³/ha/yr — heavy irrigator"],
   },
   {
-    id:"peach", emoji:"🍑", name:"Peach", category:"Stone Fruit",
+    id:"peach", emoji:"🍑", name:"Peach (Low-Chill)", category:"Stone Fruit",
+    gddOpt:[900,2500], gddAbs:[700,3200],
+    frostTol:"moderate", maxAnnualFrost:40, frostKillBelow:-20,
+    heatOpt:35, heatAbs:65,
+    waterNeed:"moderate", minAridityRainfed:0.5, minAridityIrr:0.0,
+    chillingNeeded:200, waterPerHa:6000,
+    notes:"Low-chill peach varieties bred for warm climates (e.g. Flordaprince, TropicBeauty, FlordaGrande). Perform well in environments with 900–2500 GDD (base 10°C) with irrigation. Require minimal chilling (100–400h) but heat stress above 35°C at flowering reduces fruit set. Widely grown in North Africa, southern Spain, and California's Central Valley. Elevation helps — cooler nights at 1,200m extend chilling hours.",
+    keyFacts:["Low-chill varieties need only 100–400 chilling hrs (below 7°C)","High-elevation semi-arid climates (1,000–1,500m) provide ideal chilling + heat balance","Irrigation essential in hyper-arid conditions (130mm vs 600mm need)","Spring frost at –2°C during flowering destroys crop — monitor microsite","Early harvest = premium market window for export"],
+  },
+  {
+    id:"peach_temp", emoji:"🍑", name:"Peach (Temperate)", category:"Stone Fruit",
     gddOpt:[900,1400], gddAbs:[700,2000],
     frostTol:"moderate", maxAnnualFrost:40, frostKillBelow:-20,
-    heatOpt:25, heatAbs:50,
+    heatOpt:10, heatAbs:30,
     waterNeed:"moderate", minAridityRainfed:0.5, minAridityIrr:0.0,
     chillingNeeded:700, waterPerHa:6000,
-    notes:"Requires chilling hours for bud break. Insufficient chilling = erratic flowering and poor set. Spring frost damages blossoms.",
-    keyFacts:["Needs 700–1000 chilling hrs (below 7°C)","Spring frost at –2°C destroys open flowers","Choose low-chill varieties (<400h) for warm climates"],
+    notes:"Traditional temperate peach varieties. Require substantial chilling for proper bud break (700–1000h). Heat stress above 30°C during fruit development reduces quality. Best suited to continental and high-altitude climates with cold winters.",
+    keyFacts:["Needs 700–1000 chilling hrs (below 7°C)","Spring frost at –2°C destroys open flowers","Best for temperate/mountain regions, not warm lowlands"],
   },
   {
     id:"plum", emoji:"🍑", name:"Plum", category:"Stone Fruit",
     gddOpt:[800,1300], gddAbs:[600,2000],
     frostTol:"moderate", maxAnnualFrost:45, frostKillBelow:-25,
-    heatOpt:25, heatAbs:45,
+    heatOpt:10, heatAbs:30,
     waterNeed:"moderate", minAridityRainfed:0.5, minAridityIrr:0.0,
     chillingNeeded:800, waterPerHa:5500,
-    notes:"Similar to peach in chill requirements. Japanese varieties are more heat tolerant than European types.",
-    keyFacts:["Needs 600–1200 chilling hrs depending on variety","More adaptable than peach to heavier soils","Mirabelle and Stanley tolerate drier conditions"],
+    notes:"Similar to peach in chill requirements. Japanese varieties (e.g. Satsuma) are more heat tolerant than European types (e.g. Stanley, Mirabelle). Spring frost at flowering is a key risk.",
+    keyFacts:["Needs 600–1200 chilling hrs depending on variety","More adaptable than peach to heavier soils","Japanese plums tolerate more heat than European","Spring frost at –2°C during flowering destroys crop"],
   },
   {
     id:"pomegranate", emoji:"🍎", name:"Pomegranate", category:"Tree Fruit",
     gddOpt:[1800,3200], gddAbs:[1200,4500],
-    frostTol:"light", maxAnnualFrost:20, frostKillBelow:-12,
-    heatOpt:90, heatAbs:150,
+    frostTol:"light", maxAnnualFrost:20, frostKillBelow:-10,
+    heatOpt:50, heatAbs:90,
     waterNeed:"low", minAridityRainfed:0.3, minAridityIrr:0.0,
     chillingNeeded:150, waterPerHa:5000,
-    notes:"Remarkably drought-tolerant once established. Needs hot dry summers for fruit quality. Tolerates mild winter frost.",
-    keyFacts:["Ideal for semi-arid Mediterranean climates","High humidity at harvest causes cracking","Wonderful variety dominates commercial production"],
+    notes:"Remarkably drought-tolerant once established. Needs hot dry summers for fruit quality and sweetness. Tolerates mild frost to –10°C during dormancy. High humidity near harvest causes fruit cracking.",
+    keyFacts:["Ideal for semi-arid Mediterranean climates","High humidity at harvest causes cracking — avoid coastal fog zones","Wonderful variety dominates commercial production","100–200 chilling hours below 7°C needed for reliable bud break"],
   },
   {
     id:"persimmon", emoji:"🫐", name:"Persimmon (Kaki)", category:"Tree Fruit",
-    gddOpt:[1500,2800], gddAbs:[1000,3500],
+    gddOpt:[1500,2800], gddAbs:[1100,3500],
     frostTol:"moderate", maxAnnualFrost:35, frostKillBelow:-15,
-    heatOpt:40, heatAbs:70,
+    heatOpt:30, heatAbs:55,
     waterNeed:"moderate", minAridityRainfed:0.45, minAridityIrr:0.0,
     chillingNeeded:300, waterPerHa:5500,
-    notes:"Tolerates a range of conditions. Ripe fruit needs frost exposure for astringency reduction in some varieties.",
-    keyFacts:["Non-astringent types (Fuyu) more commercially flexible","Good alternative to stone fruits in warm, dry areas","Deep-rooted; moderately drought tolerant"],
+    notes:"Tolerates a range of conditions but prefers moderate heat. Ripe fruit benefits from frost exposure for astringency reduction in some varieties. Thrives in warm temperate to subtropical climates with distinct seasons.",
+    keyFacts:["Non-astringent types (Fuyu) more commercially flexible","Good alternative to stone fruits in warm, dry areas","Deep-rooted; moderately drought tolerant","Needs 200–500 chilling hours depending on cultivar"],
   },
 
   // ── Vegetables ───────────────────────────────────────────────
@@ -695,93 +784,93 @@ const CROPS = [
     id:"tomato", emoji:"🍅", name:"Tomato", category:"Vegetable",
     gddOpt:[1100,1800], gddAbs:[800,2200],
     frostTol:"none", maxAnnualFrost:0, frostKillBelow:0,
-    heatOpt:30, heatAbs:55,
+    heatOpt:15, heatAbs:35,
     waterNeed:"moderate", minAridityRainfed:0.55, minAridityIrr:0.0,
     chillingNeeded:0, waterPerHa:5000,
-    notes:"Pollen sterility above 35°C causes poor fruit set. Two main seasons possible in warm climates.",
-    keyFacts:["Heat stress at flowering → blossom drop","Tunnel/shade production extends season","Best yield at night temps 15–18°C"],
+    notes:"Optimum mean daily temp 18–25°C. Pollen sterility above 35°C causes poor fruit set. Night temps above 20°C cause excessive vegetative growth and poor fruit set. Dry climates preferred for disease control.",
+    keyFacts:["Heat stress at flowering (>35°C) → blossom drop","Tunnel/shade production extends season","Best yield at night temps 15–18°C","Temperatures above 25°C + humidity → reduced yield"],
   },
   {
     id:"potato", emoji:"🥔", name:"Potato", category:"Vegetable",
     gddOpt:[700,1400], gddAbs:[500,1800],
     frostTol:"none", maxAnnualFrost:0, frostKillBelow:-2,
-    heatOpt:20, heatAbs:40,
+    heatOpt:5, heatAbs:20,
     waterNeed:"moderate", minAridityRainfed:0.5, minAridityIrr:0.0,
     chillingNeeded:0, waterPerHa:5000,
-    notes:"Tuber initiation stops above 29°C. Best grown as autumn–winter crop in warm climates.",
-    keyFacts:["High heat (>30°C) severely reduces tuber yield","Autumn planting ideal in hot areas","Consistent irrigation critical during tuber bulking"],
+    notes:"Optimum mean daily temp 18–20°C. Tuber initiation requires night temps below 15°C. Tuber growth sharply inhibited above 30°C soil temp. Best grown as autumn–winter crop in warm climates.",
+    keyFacts:["High heat (>30°C) severely reduces tuber yield — cool season crop","Autumn/winter planting ideal in hot climates","Consistent irrigation critical during tuber bulking","Optimum soil temp for tuber growth: 15–18°C"],
   },
   {
     id:"watermelon", emoji:"🍉", name:"Watermelon", category:"Vegetable",
     gddOpt:[1200,2000], gddAbs:[900,2500],
-    frostTol:"none", maxAnnualFrost:0, frostKillBelow:2,
-    heatOpt:75, heatAbs:120,
+    frostTol:"none", maxAnnualFrost:0, frostKillBelow:0,
+    heatOpt:30, heatAbs:55,
     waterNeed:"high", minAridityRainfed:0.55, minAridityIrr:0.0,
     chillingNeeded:0, waterPerHa:6000,
-    notes:"Loves intense heat and dry air. Excellent sugar content in arid climates with irrigation.",
-    keyFacts:["Dry air during ripening = high Brix (sweetness)","Needs 75–90 warm days after transplant","Drip irrigation keeps foliage dry, reducing disease"],
+    notes:"Prefers hot, dry climate with mean daily temps 22–30°C. Max for growth ~35°C. Very sensitive to frost. Excellent sugar content in arid climates with irrigation. 80–110 day growing period.",
+    keyFacts:["Dry air during ripening = high Brix (sweetness)","Needs 80–110 warm days after planting","Drip irrigation keeps foliage dry, reducing disease","Optimum soil temp for roots: 20–35°C"],
   },
   {
     id:"carrot", emoji:"🥕", name:"Carrot", category:"Vegetable",
     gddOpt:[700,1200], gddAbs:[500,1600],
     frostTol:"hardy", maxAnnualFrost:60, frostKillBelow:-8,
-    heatOpt:20, heatAbs:35,
+    heatOpt:8, heatAbs:20,
     waterNeed:"moderate", minAridityRainfed:0.45, minAridityIrr:0.0,
     chillingNeeded:0, waterPerHa:4500,
-    notes:"Cool-season crop. Sandy, well-drained soil essential. Bolts (flowers prematurely) in hot weather.",
-    keyFacts:["Heat above 28°C causes forking and off-flavor","Autumn/winter crop in hot climates","High-value export crop with good storage"],
+    notes:"Cool-season crop. Optimum mean daily temp 15–20°C. Sandy, well-drained soil essential. Bolts (flowers prematurely) in hot weather above 28°C causing forking and off-flavor.",
+    keyFacts:["Heat above 28°C causes forking and off-flavor","Autumn/winter crop in hot climates — summer not viable","High-value export crop with good storage"],
   },
   {
     id:"onion", emoji:"🧅", name:"Onion", category:"Vegetable",
     gddOpt:[700,1100], gddAbs:[500,1500],
     frostTol:"moderate", maxAnnualFrost:40, frostKillBelow:-6,
-    heatOpt:20, heatAbs:40,
+    heatOpt:10, heatAbs:25,
     waterNeed:"moderate", minAridityRainfed:0.45, minAridityIrr:0.0,
     chillingNeeded:0, waterPerHa:4000,
-    notes:"Day-length sensitive — choose short-day varieties for latitudes below 35°. Stop irrigation 2–3 weeks before harvest.",
-    keyFacts:["Short-day vs long-day variety choice is critical","Bulbing triggered by photoperiod, not just heat","High disease risk in humid conditions"],
+    notes:"Day-length sensitive — choose short-day varieties for latitudes below 35°. Stop irrigation 2–3 weeks before harvest for curing. Cool-season crop; optimum 15–20°C.",
+    keyFacts:["Short-day vs long-day variety choice is critical","Bulbing triggered by photoperiod, not just heat","High disease risk in humid conditions","Stop irrigation 2–3 weeks before harvest for proper curing"],
   },
 
   // ── Field Crops ──────────────────────────────────────────────
   {
     id:"wheat", emoji:"🌾", name:"Wheat (Winter)", category:"Field Crop",
-    gddOpt:[1000,1700], gddAbs:[700,2200],
+    gddOpt:[1200,2000], gddAbs:[800,2500],
     frostTol:"hardy", maxAnnualFrost:90, frostKillBelow:-20,
-    heatOpt:30, heatAbs:55,
+    heatOpt:15, heatAbs:35,
     waterNeed:"low", minAridityRainfed:0.3, minAridityIrr:0.0,
     chillingNeeded:400, waterPerHa:3500,
-    notes:"The backbone of dryland farming in semi-arid regions. Vernalization (cold) required for grain set.",
-    keyFacts:["Needs 400–600 chilling hrs for proper vernalization","Heat during grain fill (>30°C) reduces protein & yield","Most water-efficient staple grain crop"],
+    notes:"The backbone of dryland farming in semi-arid regions. Vernalization (cold) required for grain set. Optimum mean daily temp 15–20°C. Dry warm ripening above 18°C preferred. 180–250 days to mature.",
+    keyFacts:["Needs 400–600 chilling hrs for proper vernalization","Heat during grain fill (>30°C) reduces protein & yield","Most water-efficient staple grain crop","Mean daily temp below 10–12°C makes wheat a hazardous crop"],
   },
   {
     id:"maize", emoji:"🌽", name:"Maize (Corn)", category:"Field Crop",
-    gddOpt:[1200,2500], gddAbs:[900,3000],
-    frostTol:"none", maxAnnualFrost:0, frostKillBelow:2,
-    heatOpt:60, heatAbs:100,
+    gddOpt:[1800,3000], gddAbs:[1400,3700],
+    frostTol:"none", maxAnnualFrost:0, frostKillBelow:0,
+    heatOpt:35, heatAbs:70,
     waterNeed:"high", minAridityRainfed:0.6, minAridityIrr:0.0,
     chillingNeeded:0, waterPerHa:7000,
-    notes:"High-yield but water-demanding. Critical water need at silking/tasseling stage. Poor set above 36°C.",
-    keyFacts:["Water stress at silking = catastrophic yield loss","Needs 500–800 mm evenly distributed","Best grown as summer crop with full irrigation"],
+    notes:"High-yield but water-demanding. Critical water need at silking/tasseling stage. Poor set above 36°C. Medium-season varieties need 2500–3000 GDD (base 10°C). Tolerates hot/dry with sufficient water up to 45°C.",
+    keyFacts:["Water stress at silking = catastrophic yield loss","Needs 500–800 mm evenly distributed","Medium varieties need 2500–3000 GDD (base 10°C)","Early: 1800 GDD, medium: 2500–3000, late: 3700+ GDD"],
   },
   {
     id:"sunflower", emoji:"🌻", name:"Sunflower", category:"Field Crop",
     gddOpt:[900,1800], gddAbs:[700,2400],
     frostTol:"light", maxAnnualFrost:10, frostKillBelow:-3,
-    heatOpt:45, heatAbs:80,
+    heatOpt:20, heatAbs:45,
     waterNeed:"low", minAridityRainfed:0.3, minAridityIrr:0.0,
     chillingNeeded:0, waterPerHa:4000,
-    notes:"Drought-tolerant deep-rooted crop. Good cash crop for semi-arid areas. Avoid humid conditions (sclerotinia risk).",
-    keyFacts:["Deep taproot accesses subsoil moisture","Low input, high drought tolerance","Oil sunflower vs confectionery types have different GDD needs"],
+    notes:"Drought-tolerant deep-rooted crop (2–3m taproot). Good cash crop for semi-arid areas. Avoid humid conditions (sclerotinia risk). Mean daily temp optimum 18–25°C. 70–200 day growing period.",
+    keyFacts:["Deep taproot accesses subsoil moisture at 2–3m","Low input, high drought tolerance","Oil vs confectionery types have different GDD needs","Susceptible to frost — plant after last frost date"],
   },
   {
     id:"chickpea", emoji:"🫘", name:"Chickpea", category:"Field Crop",
     gddOpt:[600,1400], gddAbs:[400,1800],
     frostTol:"moderate", maxAnnualFrost:30, frostKillBelow:-8,
-    heatOpt:20, heatAbs:40,
+    heatOpt:10, heatAbs:25,
     waterNeed:"low", minAridityRainfed:0.2, minAridityIrr:0.0,
     chillingNeeded:0, waterPerHa:2500,
-    notes:"Most drought-tolerant grain legume. Fixes nitrogen. Ideal for rotation with cereals in semi-arid regions.",
-    keyFacts:["Excellent water use efficiency","Nitrogen-fixing: reduces fertilizer costs","Susceptible to botrytis in humid, cool conditions"],
+    notes:"Most drought-tolerant grain legume. Fixes nitrogen. Cool-season crop — optimum 15–20°C. Heat stress above 32°C during flowering causes pod abortion. Ideal for rotation with cereals in semi-arid regions.",
+    keyFacts:["Excellent water use efficiency — most drought-tolerant legume","Nitrogen-fixing: reduces fertilizer costs by 50–80 kg N/ha","Susceptible to botrytis/ascochyta in humid conditions","Heat stress >32°C at flowering → pod abortion"],
   },
 
   // ── Forage ───────────────────────────────────────────────────
@@ -789,11 +878,11 @@ const CROPS = [
     id:"alfalfa", emoji:"🌿", name:"Alfalfa (Lucerne)", category:"Forage",
     gddOpt:[700,3500], gddAbs:[400,5000],
     frostTol:"hardy", maxAnnualFrost:90, frostKillBelow:-25,
-    heatOpt:90, heatAbs:130,
+    heatOpt:5, heatAbs:20,
     waterNeed:"very_high", minAridityRainfed:0.7, minAridityIrr:0.0,
     chillingNeeded:0, waterPerHa:14000,
-    notes:"Highest protein forage. Perennial — 4–8 cuts/year in warm climates. Extremely water-hungry but very productive with irrigation.",
-    keyFacts:["Needs 12,000–18,000 m³/ha/yr — plan water supply carefully","Deep-rooted (3–6m) once established","Best forage protein for livestock — 18–22% crude protein","4–8 cuts/yr possible in warm climates"],
+    notes:"Highest protein forage (18–22% CP). Perennial — 2–12 cuts/year depending on climate. Growth decreases sharply above 30°C — goes dormant in extreme heat. Optimum 25°C. Extremely water-hungry but very productive with irrigation.",
+    keyFacts:["Needs 12,000–18,000 m³/ha/yr — plan water supply carefully","Deep-rooted (3–6m) once established","Best forage protein — 18–22% crude protein","2–12 cuts/yr depending on climate; goes dormant in extreme heat","Growth drops sharply above 30°C — not heat-loving"],
   },
 ];
 
@@ -872,8 +961,6 @@ function scoreCrop(crop, stats, irrigation) {
   }
 
   /* 5 ── Water Balance (0–10 pts, IRRIGATION-SENSITIVE) */
-  const waterNeeds = { very_low:1500, low:3000, moderate:5500, high:7500, very_high:14000 };
-  const needMm = waterNeeds[crop.waterNeed] / 10; // convert to mm/yr approx
   if (irrigation) {
     // Irrigation ON — water fully available; score based on water cost (high need = slightly lower for risk)
     const costPenalty = crop.waterNeed === "very_high" ? 2 : crop.waterNeed === "high" ? 1 : 0;
@@ -896,7 +983,33 @@ function scoreCrop(crop, stats, irrigation) {
 
   const total = Object.values(factors).reduce((s, f) => s + f.score, 0);
   const max   = 100; // 30+25+20+15+10
-  const pct   = Math.round((total / max) * 100);
+  let pct   = Math.round((total / max) * 100);
+
+  /* ── Viability penalty ── */
+  // If a critical factor is severely below its max, tank the score hard.
+  // This prevents a crop from scoring decently while lacking something essential.
+  const factorMaxes = { gdd:30, frost:25, heat:20, chill:15, water:10 };
+  const penalties = {
+    gdd:    { threshold: 0.20, multiplier: 0.30 },
+    frost:  { threshold: 0.20, multiplier: 0.40 },
+    heat:   { threshold: 0.20, multiplier: 0.40 },
+    chill:  { threshold: 0.20, multiplier: 0.50 },
+    water:  { threshold: 0.20, multiplier: 0.15 }, // water failure is most punishing
+  };
+  let viability = 1.0;
+  let showstoppers = [];
+  for (const [key, cfg] of Object.entries(penalties)) {
+    if (!factors[key]) continue;
+    const fMax = factorMaxes[key];
+    const ratio = factors[key].score / fMax;
+    if (ratio < cfg.threshold) {
+      viability *= cfg.multiplier;
+      showstoppers.push(factors[key].label);
+    }
+  }
+  if (viability < 1.0) {
+    pct = Math.round(pct * viability);
+  }
 
   // Compute limiting factors
   const limits = Object.entries(factors)
@@ -905,7 +1018,7 @@ function scoreCrop(crop, stats, irrigation) {
     .slice(0, 2)
     .map(([, f]) => f.label);
 
-  return { pct, factors, limits };
+  return { pct, factors, limits, showstoppers, viability };
 }
 
 /* ─── FACTOR BAR ─────────────────────────────────────────────── */
@@ -926,7 +1039,8 @@ const FactorBar = ({ label, score, max, color }) => (
 
 /* ─── CROP CARD ──────────────────────────────────────────────── */
 const CropCard = ({ crop, result, expanded, onToggle }) => {
-  const { pct, factors } = result;
+  const { pct, factors, showstoppers, viability } = result;
+  const penalized = viability != null && viability < 1;
   const col = pct >= 70 ? T.leaf : pct >= 45 ? T.straw : pct >= 25 ? T.ochre : "#B04030";
   const verdict = pct >= 75 ? "✅ Well Suited"
     : pct >= 55 ? "🟡 Suitable"
@@ -954,12 +1068,16 @@ const CropCard = ({ crop, result, expanded, onToggle }) => {
         </div>
         {/* Score bar */}
         <div style={{ flex: 2, minWidth: 80 }}>
-          <div style={{ height: 8, background: `${T.forest}`, borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ height: 8, background: `${T.forest}`, borderRadius: 4, overflow: "hidden", position: 'relative' }}>
             <div style={{
               width: `${pct}%`, height: "100%",
               background: `linear-gradient(to right, ${col}99, ${col})`,
               borderRadius: 4, transition: "width 0.8s ease",
             }} />
+            {penalized && <div style={{
+              position: 'absolute', right: 2, top: -1, fontSize: 9, color: '#E88A6A',
+              fontWeight: 700, lineHeight: 1,
+            }}>⚠️</div>}
           </div>
         </div>
         <div style={{ width: 36, textAlign: "right", fontSize: 13, color: col, fontWeight: 700, flexShrink: 0 }}>{pct}%</div>
@@ -988,6 +1106,18 @@ const CropCard = ({ crop, result, expanded, onToggle }) => {
 
             {/* Factor notes */}
             <div style={{ flex: "1 1 200px" }}>
+              {/* Showstopper warning */}
+              {penalized && showstoppers?.length > 0 && (
+                <div style={{
+                  background: '#E88A6A15', border: '1px solid #E88A6A44',
+                  borderRadius: 6, padding: '8px 10px', marginBottom: 10,
+                }}>
+                  <div style={{ fontSize: 10, color: '#E88A6A', fontWeight: 700, marginBottom: 4 }}>⛔ SHOWSTOPPER</div>
+                  {showstoppers.map((s, i) => (
+                    <div key={i} style={{ fontSize: 10, color: T.fog, lineHeight: 1.5, marginBottom: 2 }}>• {s}</div>
+                  ))}
+                </div>
+              )}
               <div style={{ fontSize: 11, color: T.straw, marginBottom: 8, fontWeight: 700 }}>FACTOR NOTES</div>
               {[
                 { icon: "🌡️", text: factors.gdd.label },
